@@ -140,16 +140,11 @@ class Ipn(Localization):
 
     def _set_lightcurves(self):
         """Set up the lightcurves for cross-correlation."""
-        lc1_full, lc2_full = self._get_full_lightcurves()
-        self._validate_time_resolution(lc1_full, lc2_full)
+        lc1_full, lc2_full = [sc.observation for sc in self._spacecraft]
+        self._validate_time_resolution(lc1_full.data, lc2_full.data)
         lc1, lc2 = self._get_background_subtracted_lightcurves(lc1_full, lc2_full)
-        self._set_lightcurve_attributes(lc1, lc2, lc1_full, lc2_full)
+        self._set_lightcurve_attributes(lc1, lc2, lc1_full.data, lc2_full.data)
         return
-
-    def _get_full_lightcurves(self):
-        """Extract full lightcurve data from spacecraft observations."""
-        lightcurves = [sc.observation for sc in self._spacecraft]
-        return lightcurves[0].data, lightcurves[1].data
 
     def _validate_time_resolution(self, lc1, lc2):
         """Ensure the second lightcurve has equal or finer time resolution 
@@ -186,8 +181,8 @@ class Ipn(Localization):
         """Try to subtract background; fall back to full lightcurves if needed
         
         Args:
-            lc1_full (gdt.core.data_primitives.TimeBins): the first lightcurve
-            lc2_full (gdt.core.data_primitives.TimeBins): the second lightcurve
+            lc1_full (gdt.ipn.instrument.Observation): the first lightcurve
+            lc2_full (gdt.ipn.instrument.Observation): the second lightcurve
 
         Returns:
             (gdt.core.data_primitives.TimeBins, gdt.core.data_primitives.TimeBins):
@@ -199,8 +194,8 @@ class Ipn(Localization):
         except Exception as e:
             warnings.warn("Cannot subtract background from lightcurves." \
                         "Using full lightcurves instead.")
-            lc1 = lc1_full
-            lc2 = lc2_full
+            lc1 = lc1_full.data
+            lc2 = lc2_full.data
         return lc1, lc2
 
     def _set_lightcurve_attributes(self, lc1, lc2, lc1_full, lc2_full):
