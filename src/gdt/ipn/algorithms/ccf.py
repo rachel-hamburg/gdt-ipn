@@ -223,16 +223,16 @@ class Ipn(Localization):
         shift_array = np.arange(num_shifts, dtype=int)
         return np.concatenate((shift_array - num_shifts, [0], shift_array + 1))
 
-    def _scale_factor(self, src):
+    def _scale_factor(self, src, times1, times2, counts1, counts2):
         """The normalization between lightcurves from instruments 
         with different count rates.
 
         Returns:
             (float): scale factor applied to 
         """
-        slice1 = np.logical_and(self._times1 >= src[0], self._times1 <= src[1])
-        slice2 = np.logical_and(self._times2 >= src[0], self._times2 <= src[1])
-        return (self._counts1[slice1].sum()) / self._counts2[slice2].sum()
+        slice1 = np.logical_and(times1 >= src[0], times1 <= src[1])
+        slice2 = np.logical_and(times2 >= src[0], times2 <= src[1])
+        return (counts1[slice1].sum()) / counts2[slice2].sum()
 
     def localize(self, src, max_dt=0., plot=False):
         """Cross-correlate two light curves using scipy's correlate function.
@@ -257,10 +257,11 @@ class Ipn(Localization):
 
         # calculate scale over selection of background-subtracted lightcurve 
         # and apply to source+background lightcurves
-        scale = self._scale_factor(src)
-        self._counts2 *= scale
-        self._err2 *= scale ** 2
-        
+        scale = self._scale_factor(src, self._times1, self._times2, 
+                                        self._counts1, self._counts2)
+        counts2 = self._counts2 * scale
+        err2 = self._err2 * scale ** 2
+ 
         # slice lightcurve 1 so that it only includes source region
         mask = (self._times1 >= src[0]) & (self._times1 <= src[1])
         self._times1_cut = self._times1[mask]
@@ -269,7 +270,8 @@ class Ipn(Localization):
 
         # shift lightcurves
         shift_array = self._shift_array(max_dt)
-        self._chi2, self._ccf = self.shift(shift_array, src, plot=plot)
+        self._chi2, self._ccf = self.shift(
+            shift_array, src, counts2, err2, plot=plot)
         if self._switch is not False:
             self._chi2 = self._chi2[::-1]
             self._ccf = self._ccf[::-1]
@@ -283,7 +285,7 @@ class Ipn(Localization):
             self._dt_min, (self._dt_min-self._dt_lo, self._dt_hi-self._dt_min))
         return
 
-    def shift(self, shift_array, src, plot=False):
+    def shift(self, shift_array, src, counts2, err2, plot=False):
         """Shift lightcurve 2 with respect to lightcurve 1
 
         Args:
@@ -312,8 +314,8 @@ class Ipn(Localization):
             else:
                 mask = (self._times2 >= start) & (self._times2 <= end)
             times2 = self._times2[mask]
-            counts2 = self._counts2[mask]
-            err2 = self._err2[mask]
+            counts2_tmp = counts2[mask]
+            err2_tmp = err2[mask]
             
             # define the new bin edges for lightcurve 2
             cum_diff = np.cumsum(np.diff(self._times1_cut))
@@ -327,8 +329,8 @@ class Ipn(Localization):
             for b in range(len(new_bin_edges)-1):
                 bins = (times2 >= new_bin_edges[b]) & (times2 < new_bin_edges[b+1])
                 times = times2[bins]
-                rebinned_counts2.append(np.sum(counts2[bins]))
-                rebinned_err2.append(np.sum(err2[bins]))
+                rebinned_counts2.append(np.sum(counts2_tmp[bins]))
+                rebinned_err2.append(np.sum(err2_tmp[bins]))
             rebinned_counts2 = np.array(rebinned_counts2)
             rebinned_err2 = np.array(rebinned_err2)
 
