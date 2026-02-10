@@ -138,17 +138,18 @@ class Ipn(Localization):
         return self._spacecraft[0].position.light_travel_time( \
                                                 self._spacecraft[1].position)
 
-    def _set_lightcurves(self):
+    def _set_lightcurves(self, src1, src2):
         """Set up the lightcurves for cross-correlation."""
         lc1_obs, lc2_obs = [sc.observation for sc in self._spacecraft]
         dt1 = lc1_obs.data.lo_edges[1] - lc1_obs.data.lo_edges[0]
         dt2 = lc2_obs.data.lo_edges[1] - lc2_obs.data.lo_edges[0]
 
         lc1, lc2 = self._get_background_subtracted_lightcurves(lc1_obs, lc2_obs)
-        self._set_lightcurve_attributes(lc1, lc2, lc1_obs.data, lc2_obs.data, dt1, dt2)
+        self._set_lightcurve_attributes(lc1, lc2, lc1_obs.data, lc2_obs.data, 
+                                        dt1, dt2, src1, src2)
         return
     
-    def _validate_lightcurve_length(self, src_interval, max_offset):
+    def _validate_lightcurve_length(self, max_offset):
         """Checks the duration of the lightcurves and ensures there is enough
         data to perform the cross-correlation
 
@@ -156,9 +157,9 @@ class Ipn(Localization):
             src_interval (tuple): the source interval time selection
             max_offset (float): the maximum time offset considered
         """
-        lower_bound = src_interval[0] - max_offset
-        upper_bound = src_interval[1] + max_offset
-        if lower_bound < self._times2[0] or upper_bound > self._times2[-1]:
+        src_length = self._src1[1] - self._src1[0]
+        time_needed = 2 * max_offset + src_length
+        if (self._times2[-1] - self._times2[0]) < time_needed:       
             raise ValueError("Need more data in lightcurve 2 to perform cross-correlation")
         return
     
@@ -183,7 +184,7 @@ class Ipn(Localization):
             lc2 = lc2_full.data
         return lc1, lc2
 
-    def _set_lightcurve_attributes(self, lc1, lc2, lc1_full, lc2_full, dt1, dt2):
+    def _set_lightcurve_attributes(self, lc1, lc2, lc1_full, lc2_full, dt1, dt2, src1, src2):
         """Set internal attributes for time, counts, errors, and time resolution.
         If lightcurve 2 has a larger binning that lightcurve 1, then the lightcurves
         are switched, so that the reference lightcurve has the larger binning
@@ -203,6 +204,8 @@ class Ipn(Localization):
             self._err2 = lc1_full.counts
             self._dt1 = dt2
             self._dt2 = dt1
+            self._src1 = src2
+            self._src2 = src1
             self._switch = True 
         else:
             self._times1 = lc1.lo_edges
@@ -213,6 +216,8 @@ class Ipn(Localization):
             self._err2 = lc2_full.counts
             self._dt1 = dt1
             self._dt2 = dt2
+            self._src1 = src1
+            self._src2 = src2
             self._switch = False
         return
 
@@ -223,18 +228,18 @@ class Ipn(Localization):
         shift_array = np.arange(num_shifts, dtype=int)
         return np.concatenate((shift_array - num_shifts, [0], shift_array + 1))
 
-    def _scale_factor(self, src, times1, times2, counts1, counts2):
+    def _scale_factor(self, src1, src2, times1, times2, counts1, counts2):
         """The normalization between lightcurves from instruments 
         with different count rates.
 
         Returns:
             (float): scale factor applied to 
         """
-        slice1 = np.logical_and(times1 >= src[0], times1 <= src[1])
-        slice2 = np.logical_and(times2 >= src[0], times2 <= src[1])
+        slice1 = np.logical_and(times1 >= src1[0], times1 <= src1[1])
+        slice2 = np.logical_and(times2 >= src2[0], times2 <= src2[1])
         return (counts1[slice1].sum()) / counts2[slice2].sum()
 
-    def localize(self, src, max_dt=0., plot=False):
+    def localize(self, src1, src2, max_dt=0., plot=False):
         """Cross-correlate two light curves using scipy's correlate function.
         The second lightcurve is shifted wrt the first lightcurve.
         
@@ -246,24 +251,25 @@ class Ipn(Localization):
             plot (Boolean): display lightcurves for each time shift
         """
         # Set lightcurves and check that there is enough data
-        self._set_lightcurves()
+        self._set_lightcurves(src1, src2)
  
         # set the max time offset
         if max_dt == 0.:
             max_dt = self.max_time_offset()[0]
         
         # check lightcurve 2 length
-        self._validate_lightcurve_length(src, max_dt)
+        self._validate_lightcurve_length(max_dt)
 
         # calculate scale over selection of background-subtracted lightcurve 
         # and apply to source+background lightcurves
-        scale = self._scale_factor(src, self._times1, self._times2, 
-                                        self._counts1, self._counts2)
+        scale = self._scale_factor(self._src1, self._src2, 
+                                    self._times1, self._times2, 
+                                    self._counts1, self._counts2)
         counts2 = self._counts2 * scale
         err2 = self._err2 * scale ** 2
  
         # slice lightcurve 1 so that it only includes source region
-        mask = (self._times1 >= src[0]) & (self._times1 <= src[1])
+        mask = (self._times1 >= self._src1[0]) & (self._times1 <= self._src1[1])
         self._times1_cut = self._times1[mask]
         self._counts1_cut = self._counts1[mask]
         self._err1_cut = self._err1[mask]
@@ -271,7 +277,7 @@ class Ipn(Localization):
         # shift lightcurves
         shift_array = self._shift_array(max_dt)
         self._chi2, self._ccf = self.shift(
-            shift_array, src, counts2, err2, plot=plot)
+            shift_array, self._src1, counts2, err2, plot=plot)
         if self._switch is not False:
             self._chi2 = self._chi2[::-1]
             self._ccf = self._ccf[::-1]
