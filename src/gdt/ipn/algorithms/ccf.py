@@ -138,37 +138,18 @@ class Ipn(Localization):
         return self._spacecraft[0].position.light_travel_time( \
                                                 self._spacecraft[1].position)
 
-    def _set_lightcurves(self):
+    def _set_lightcurves(self, src1, src2):
         """Set up the lightcurves for cross-correlation."""
-        lc1_full, lc2_full = self._get_full_lightcurves()
-        self._validate_time_resolution(lc1_full, lc2_full)
-        lc1, lc2 = self._get_background_subtracted_lightcurves(lc1_full, lc2_full)
-        self._set_lightcurve_attributes(lc1, lc2, lc1_full, lc2_full)
-        return
+        lc1_obs, lc2_obs = [sc.observation for sc in self._spacecraft]
+        dt1 = lc1_obs.data.lo_edges[1] - lc1_obs.data.lo_edges[0]
+        dt2 = lc2_obs.data.lo_edges[1] - lc2_obs.data.lo_edges[0]
 
-    def _get_full_lightcurves(self):
-        """Extract full lightcurve data from spacecraft observations."""
-        lightcurves = [sc.observation for sc in self._spacecraft]
-        return lightcurves[0].data, lightcurves[1].data
-
-    def _validate_time_resolution(self, lc1, lc2):
-        """Ensure the second lightcurve has equal or finer time resolution 
-        than the first lightcurve
-        
-        Args:
-            lc1 (gdt.core.data_primitives.TimeBins): the first lightcurve, 
-                background-subtracted
-            lc2 (gdt.core.data_primitives.TimeBins): the second lightcurve, 
-                background-subtracted
-        """
-        dt1 = lc1.lo_edges[1] - lc1.lo_edges[0]
-        dt2 = lc2.lo_edges[1] - lc2.lo_edges[0]
-        if dt2 > dt1:
-            raise ValueError("Lightcurve 2 must have a time resolution" \
-                             "equal to or less than Lightcurve 1.")
+        lc1, lc2 = self._get_background_subtracted_lightcurves(lc1_obs, lc2_obs)
+        self._set_lightcurve_attributes(lc1, lc2, lc1_obs.data, lc2_obs.data, 
+                                        dt1, dt2, src1, src2)
         return
     
-    def _validate_lightcurve_length(self, src_interval, max_offset):
+    def _validate_lightcurve_length(self, max_offset):
         """Checks the duration of the lightcurves and ensures there is enough
         data to perform the cross-correlation
 
@@ -176,9 +157,9 @@ class Ipn(Localization):
             src_interval (tuple): the source interval time selection
             max_offset (float): the maximum time offset considered
         """
-        lower_bound = src_interval[0] - max_offset
-        upper_bound = src_interval[1] + max_offset
-        if lower_bound < self._times2[0] or upper_bound > self._times2[-1]:
+        src_length = self._src1[1] - self._src1[0]
+        time_needed = 2 * max_offset + src_length
+        if (self._times2[-1] - self._times2[0]) < time_needed:       
             raise ValueError("Need more data in lightcurve 2 to perform cross-correlation")
         return
     
@@ -186,8 +167,8 @@ class Ipn(Localization):
         """Try to subtract background; fall back to full lightcurves if needed
         
         Args:
-            lc1_full (gdt.core.data_primitives.TimeBins): the first lightcurve
-            lc2_full (gdt.core.data_primitives.TimeBins): the second lightcurve
+            lc1_full (gdt.ipn.instrument.Observation): the first lightcurve
+            lc2_full (gdt.ipn.instrument.Observation): the second lightcurve
 
         Returns:
             (gdt.core.data_primitives.TimeBins, gdt.core.data_primitives.TimeBins):
@@ -199,27 +180,51 @@ class Ipn(Localization):
         except Exception as e:
             warnings.warn("Cannot subtract background from lightcurves." \
                         "Using full lightcurves instead.")
-            lc1 = lc1_full
-            lc2 = lc2_full
+            lc1 = lc1_full.data
+            lc2 = lc2_full.data
         return lc1, lc2
 
-    def _set_lightcurve_attributes(self, lc1, lc2, lc1_full, lc2_full):
+    def _set_lightcurve_attributes(self, lc1, lc2, lc1_full, lc2_full, dt1, dt2, src1, src2):
         """Set internal attributes for time, counts, errors, and time resolution.
+        If lightcurve 2 has a larger binning that lightcurve 1, then the lightcurves
+        are switched, so that the reference lightcurve has the larger binning
         
         Args:
             lc1 (gdt.core.data_primitives.TimeBins): the first lightcurve, background-subtracted
             lc2 (gdt.core.data_primitives.TimeBins): the second lightcurve, background-subtracted
             lc1_full (gdt.core.data_primitives.TimeBins): the first lightcurve
             lc2_full (gdt.core.data_primitives.TimeBins): the second lightcurve
+            dt1 (float): the time resolution of the first lightcurve
+            dt2 (float): the time resolution of the second lightcurve
+            src1 (tuple): 
+                the start and stop times of the source interval in lightcurve 1
+            src2 (tuple): 
+                the start and stop times of the source interval in lightcurve 2
         """
-        self._times1 = lc1.lo_edges
-        self._times2 = lc2.lo_edges
-        self._counts1 = lc1.counts
-        self._counts2 = lc2.counts
-        self._err1 = lc1_full.counts
-        self._err2 = lc2_full.counts
-        self._dt1 = lc1.lo_edges[1] - lc1.lo_edges[0]
-        self._dt2 = lc2.lo_edges[1] - lc2.lo_edges[0]
+        if dt2 > dt1:
+            self._times1 = lc2.lo_edges
+            self._times2 = lc1.lo_edges
+            self._counts1 = lc2.counts
+            self._counts2 = lc1.counts
+            self._err1 = lc2_full.counts
+            self._err2 = lc1_full.counts
+            self._dt1 = dt2
+            self._dt2 = dt1
+            self._src1 = src2
+            self._src2 = src1
+            self._switch = True 
+        else:
+            self._times1 = lc1.lo_edges
+            self._times2 = lc2.lo_edges
+            self._counts1 = lc1.counts
+            self._counts2 = lc2.counts
+            self._err1 = lc1_full.counts
+            self._err2 = lc2_full.counts
+            self._dt1 = dt1
+            self._dt2 = dt2
+            self._src1 = src1
+            self._src2 = src2
+            self._switch = False
         return
 
     def _shift_array(self, max_dt):
@@ -229,53 +234,67 @@ class Ipn(Localization):
         shift_array = np.arange(num_shifts, dtype=int)
         return np.concatenate((shift_array - num_shifts, [0], shift_array + 1))
 
-    def _scale_factor(self, src):
+    def _scale_factor(self, src1, src2, times1, times2, counts1, counts2):
         """The normalization between lightcurves from instruments 
         with different count rates.
+
+        Args:
+            src1 (tuple): the start and stop times of the source interval in lightcurve 1
+            src2 (tuple): the start and stop times of the source interval in lightcurve 2
+            times1 (np.array): the time bin lo-edges of the first lightcurve
+            times2 (np.array): the time bin lo-edges of the second lightcurve
+            counts1 (np.array): The first lightcurve background-subtracted counts
+            counts2 (np.array): The second lightcurve background-subtracted counts
 
         Returns:
             (float): scale factor applied to 
         """
-        slice1 = np.logical_and(self._times1 >= src[0], self._times1 <= src[1])
-        slice2 = np.logical_and(self._times2 >= src[0], self._times2 <= src[1])
-        return (self._counts1[slice1].sum()) / self._counts2[slice2].sum()
+        slice1 = np.logical_and(times1 >= src1[0], times1 <= src1[1])
+        slice2 = np.logical_and(times2 >= src2[0], times2 <= src2[1])
+        return (counts1[slice1].sum()) / counts2[slice2].sum()
 
-    def localize(self, src, max_dt=0., plot=False):
-        """Cross-correlate two light curves using scipy's correlate function.
+    def localize(self, src1, src2, max_dt=0., plot=False):
+        """Cross-correlate the two lightcurves.
         The second lightcurve is shifted wrt the first lightcurve.
         
         Args:
-            src (tuple): the start and stop times of source interval in lightcurve 1
-            lc2_start (float): the start time of the source interval in lightcurve 2
+            src1 (tuple): start and stop times of the source interval in lightcurve 1
+            src2 (tuple): start and stop times of the source interval in lightcurve 2
             max_dt (float): the maximum time lag (1-sided) to consider, 
                             e.g., the light-travel-time between spacecraft
             plot (Boolean): display lightcurves for each time shift
         """
         # Set lightcurves and check that there is enough data
-        self._set_lightcurves()
+        self._set_lightcurves(src1, src2)
  
         # set the max time offset
         if max_dt == 0.:
             max_dt = self.max_time_offset()[0]
         
         # check lightcurve 2 length
-        self._validate_lightcurve_length(src, max_dt)
+        self._validate_lightcurve_length(max_dt)
 
         # calculate scale over selection of background-subtracted lightcurve 
         # and apply to source+background lightcurves
-        scale = self._scale_factor(src)
-        self._counts2 *= scale
-        self._err2 *= scale ** 2
-        
+        scale = self._scale_factor(self._src1, self._src2, 
+                                    self._times1, self._times2, 
+                                    self._counts1, self._counts2)
+        counts2 = self._counts2 * scale
+        err2 = self._err2 * scale ** 2
+ 
         # slice lightcurve 1 so that it only includes source region
-        mask = (self._times1 >= src[0]) & (self._times1 <= src[1])
+        mask = (self._times1 >= self._src1[0]) & (self._times1 <= self._src1[1])
         self._times1_cut = self._times1[mask]
         self._counts1_cut = self._counts1[mask]
         self._err1_cut = self._err1[mask]
 
         # shift lightcurves
         shift_array = self._shift_array(max_dt)
-        self._chi2, self._ccf = self.shift(shift_array, src, plot=plot)
+        self._chi2, self._ccf = self.shift(
+            shift_array, self._src1, counts2, err2, plot=plot)
+        if self._switch is not False:
+            self._chi2 = self._chi2[::-1]
+            self._ccf = self._ccf[::-1]
 
         # Get the timing uncertainties
         self._dts = shift_array * self._dt2
@@ -286,12 +305,14 @@ class Ipn(Localization):
             self._dt_min, (self._dt_min-self._dt_lo, self._dt_hi-self._dt_min))
         return
 
-    def shift(self, shift_array, src, plot=False):
+    def shift(self, shift_array, src, counts2, err2, plot=False):
         """Shift lightcurve 2 with respect to lightcurve 1
 
         Args:
             shift_array (np.array): the list of time shifts 
             src (tuple): the amount of data to slice in each lightcurve
+            counts2 (np.array): the normalized background-subtracted counts in lightcurve 2
+            err2 (np.array): the normalized source+background counts in lightcurve 2
             plot (Boolean): plot the lightcurves at each shift;
                 default is False
 
@@ -315,8 +336,8 @@ class Ipn(Localization):
             else:
                 mask = (self._times2 >= start) & (self._times2 <= end)
             times2 = self._times2[mask]
-            counts2 = self._counts2[mask]
-            err2 = self._err2[mask]
+            counts2_tmp = counts2[mask]
+            err2_tmp = err2[mask]
             
             # define the new bin edges for lightcurve 2
             cum_diff = np.cumsum(np.diff(self._times1_cut))
@@ -330,8 +351,8 @@ class Ipn(Localization):
             for b in range(len(new_bin_edges)-1):
                 bins = (times2 >= new_bin_edges[b]) & (times2 < new_bin_edges[b+1])
                 times = times2[bins]
-                rebinned_counts2.append(np.sum(counts2[bins]))
-                rebinned_err2.append(np.sum(err2[bins]))
+                rebinned_counts2.append(np.sum(counts2_tmp[bins]))
+                rebinned_err2.append(np.sum(err2_tmp[bins]))
             rebinned_counts2 = np.array(rebinned_counts2)
             rebinned_err2 = np.array(rebinned_err2)
 
