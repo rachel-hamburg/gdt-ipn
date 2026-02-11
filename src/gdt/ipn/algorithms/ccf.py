@@ -194,6 +194,12 @@ class Ipn(Localization):
             lc2 (gdt.core.data_primitives.TimeBins): the second lightcurve, background-subtracted
             lc1_full (gdt.core.data_primitives.TimeBins): the first lightcurve
             lc2_full (gdt.core.data_primitives.TimeBins): the second lightcurve
+            dt1 (float): the time resolution of the first lightcurve
+            dt2 (float): the time resolution of the second lightcurve
+            src1 (tuple): 
+                the start and stop times of the source interval in lightcurve 1
+            src2 (tuple): 
+                the start and stop times of the source interval in lightcurve 2
         """
         if dt2 > dt1:
             self._times1 = lc2.lo_edges
@@ -232,6 +238,14 @@ class Ipn(Localization):
         """The normalization between lightcurves from instruments 
         with different count rates.
 
+        Args:
+            src1 (tuple): the start and stop times of the source interval in lightcurve 1
+            src2 (tuple): the start and stop times of the source interval in lightcurve 2
+            times1 (np.array): the time bin lo-edges of the first lightcurve
+            times2 (np.array): the time bin lo-edges of the second lightcurve
+            counts1 (np.array): The first lightcurve background-subtracted counts
+            counts2 (np.array): The second lightcurve background-subtracted counts
+
         Returns:
             (float): scale factor applied to 
         """
@@ -240,12 +254,12 @@ class Ipn(Localization):
         return (counts1[slice1].sum()) / counts2[slice2].sum()
 
     def localize(self, src1, src2, max_dt=0., plot=False):
-        """Cross-correlate two light curves using scipy's correlate function.
+        """Cross-correlate the two lightcurves.
         The second lightcurve is shifted wrt the first lightcurve.
         
         Args:
-            src (tuple): the start and stop times of source interval in lightcurve 1
-            lc2_start (float): the start time of the source interval in lightcurve 2
+            src1 (tuple): start and stop times of the source interval in lightcurve 1
+            src2 (tuple): start and stop times of the source interval in lightcurve 2
             max_dt (float): the maximum time lag (1-sided) to consider, 
                             e.g., the light-travel-time between spacecraft
             plot (Boolean): display lightcurves for each time shift
@@ -297,6 +311,8 @@ class Ipn(Localization):
         Args:
             shift_array (np.array): the list of time shifts 
             src (tuple): the amount of data to slice in each lightcurve
+            counts2 (np.array): the normalized background-subtracted counts in lightcurve 2
+            err2 (np.array): the normalized source+background counts in lightcurve 2
             plot (Boolean): plot the lightcurves at each shift;
                 default is False
 
