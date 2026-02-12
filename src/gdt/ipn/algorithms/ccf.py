@@ -364,7 +364,8 @@ class Ipn(Localization):
                     variance1=self._err1_cut[:-1], variance2=rebinned_err2,
                     dof=len(rebinned_counts2)-1)
             chisq.append(x2)
-            ccf.append(self.ccf(self._counts1_cut[:-1], rebinned_counts2))
+            ccf.append(self.ccf(self._counts1_cut[:-1], rebinned_counts2, 
+                       variance1=self._err1_cut[:-1], variance2=rebinned_err2))
         return chisq, ccf
 
     def chisq(self, counts1, counts2, variance1=None, variance2=None, dof=1):
@@ -380,16 +381,13 @@ class Ipn(Localization):
         Returns:
             (float): The chi-squared statistic per degrees of freedom
         """
-        mask = (counts1 > 0) & (counts2 > 0)
         if variance1 is not None and variance2 is not None:
-            r = (counts1[mask] - counts2[mask])**2/ \
-                (variance1[mask] + variance2[mask])
+            r = (counts1 - counts2)**2 / (variance1 + variance2)
         else:
-            r = (counts1[mask] - counts2[mask])**2/ \
-                (counts1[mask] + counts2[mask])
+            r = (counts1 - counts2)**2 / (counts1 + counts2)
         return r.sum() / dof
 
-    def ccf(self, counts1, counts2):
+    def ccf(self, counts1, counts2, variance1=None, variance2=None):
         """The cross-correlation of `counts1` and `counts2`
         
         Args:
@@ -401,7 +399,12 @@ class Ipn(Localization):
         """
         norm1 = counts1 - np.mean(counts1)
         norm2 = counts2 - np.mean(counts2)
-        return np.sum(norm1 * norm2) / np.sqrt(np.sum(norm1**2) * np.sum(norm2**2))
+        if variance1 is not None and variance2 is not None:
+            return np.sum(norm1 * norm2) / \
+                    np.sum(np.sqrt(variance1 * variance2)) / len(counts2)
+        else:
+            return np.sum(norm1 * norm2) / \
+                    np.sqrt(np.sum(norm1**2) * np.sum(norm2**2))
 
     def chi2_confidence_interval(self, sigma=3., dof=1):
         """
