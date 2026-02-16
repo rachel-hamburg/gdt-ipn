@@ -141,8 +141,8 @@ class Ipn(Localization):
     def _set_lightcurves(self, src1, src2):
         """Set up the lightcurves for cross-correlation."""
         lc1_obs, lc2_obs = [sc.observation for sc in self._spacecraft]
-        dt1 = lc1_obs.data.lo_edges[1] - lc1_obs.data.lo_edges[0]
-        dt2 = lc2_obs.data.lo_edges[1] - lc2_obs.data.lo_edges[0]
+        dt1 = np.round(lc1_obs.data.lo_edges[1] - lc1_obs.data.lo_edges[0], 12)
+        dt2 = np.round(lc2_obs.data.lo_edges[1] - lc2_obs.data.lo_edges[0], 12)
 
         lc1, lc2 = self._get_background_subtracted_lightcurves(lc1_obs, lc2_obs)
         self._set_lightcurve_attributes(lc1, lc2, lc1_obs.data, lc2_obs.data, 
@@ -158,9 +158,17 @@ class Ipn(Localization):
             max_offset (float): the maximum time offset considered
         """
         src_length = self._src1[1] - self._src1[0]
-        time_needed = 2 * max_offset + src_length
-        if (self._times2[-1] - self._times2[0]) < time_needed:       
-            raise ValueError("Need more data in lightcurve 2 to perform cross-correlation")
+        start_needed = self._src1[0] - max_offset
+        stop_needed = self._src1[0] + max_offset + src_length
+
+        if self._switch == True:
+            lc = 1
+        else:
+            lc = 2
+        if self._times2[0] > start_needed or self._times2[-1] < stop_needed:
+            raise ValueError("For max offset and chosen source selection, " \
+                "Lightcurve{} needs T0{:.3f}:T0+{:.3f} s of data".format(
+                lc, start_needed, stop_needed))
         return
     
     def _get_background_subtracted_lightcurves(self, lc1_full, lc2_full):
@@ -326,15 +334,9 @@ class Ipn(Localization):
         for i, shift in enumerate(shift_array):
             start = src[0] + (shift * self._dt2)
             end = start + (src[1] - src[0])
-       
+
             # slice lightcurve 2
-            #mask = (self._times2 >= start) & (self._times2 < end + self._dt2)
-            if shift < 0:
-                mask = (self._times2 >= start) & (self._times2 < end + self._dt2)
-            elif shift > 0:
-                mask = (self._times2 > start - self._dt2) & (self._times2 <= end)
-            else:
-                mask = (self._times2 >= start) & (self._times2 <= end)
+            mask = (self._times2 >= start) & (self._times2 < end + self._dt2) # take lo_edges + 1
             times2 = self._times2[mask]
             counts2_tmp = counts2[mask]
             err2_tmp = err2[mask]
