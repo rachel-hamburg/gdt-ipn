@@ -587,7 +587,7 @@ class ClassicIpn(Localization):
         ratio = counts1.sum()/counts2.sum()
         return counts2*ratio
         
-    def chisq(self, counts1, counts2):
+    def calc_chisq(self, counts1, counts2):
         """Chi-squared statistic for the comparison of `counts1` to `counts2`
         
         Args:
