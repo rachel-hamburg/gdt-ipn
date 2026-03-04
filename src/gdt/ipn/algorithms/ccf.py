@@ -300,6 +300,7 @@ class Ipn(Localization):
         shift_array = self._shift_array(max_dt)
         self._chi2, self._ccf = self.shift(
             shift_array, self._src1, counts2, err2, plot=plot)
+
         if self._switch is not False:
             self._chi2 = self._chi2[::-1]
             self._ccf = self._ccf[::-1]
@@ -384,7 +385,8 @@ class Ipn(Localization):
             (float): The chi-squared statistic per degrees of freedom
         """
         if variance1 is not None and variance2 is not None:
-            r = (counts1 - counts2)**2 / (variance1 + variance2)
+            mask = (variance1 > 0) & (variance2 > 0)
+            r = (counts1[mask] - counts2[mask])**2 / (variance1[mask] + variance2[mask])
         else:
             r = (counts1 - counts2)**2 / (counts1 + counts2)
         return r.sum() / dof
