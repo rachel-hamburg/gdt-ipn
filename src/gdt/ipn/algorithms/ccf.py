@@ -333,8 +333,14 @@ class Ipn(Localization):
         chisq = []
         ccf = []
         for i, shift in enumerate(shift_array):
-            start = src[0] + (shift * self._dt2)
+            start = self._times1_cut[0] + (shift * self._dt2)
             end = start + (src[1] - src[0])
+
+            # first account for differences in time resolution
+            start_mask = (self._times2 >= start - self._dt2) & (self._times2 < start + self._dt2)
+            start_times = self._times2[start_mask]
+            start_idx = np.argmin([np.abs(s-start) for s in self._times2[start_mask]])
+            start = start_times[start_idx]
 
             # slice lightcurve 2
             mask = (self._times2 >= start) & (self._times2 < end + self._dt2) # take lo_edges + 1
