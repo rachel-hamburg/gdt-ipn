@@ -300,6 +300,7 @@ class Ipn(Localization):
         shift_array = self._shift_array(max_dt)
         self._chi2, self._ccf = self.shift(
             shift_array, self._src1, counts2, err2, plot=plot)
+
         if self._switch is not False:
             self._chi2 = self._chi2[::-1]
             self._ccf = self._ccf[::-1]
@@ -332,8 +333,14 @@ class Ipn(Localization):
         chisq = []
         ccf = []
         for i, shift in enumerate(shift_array):
-            start = src[0] + (shift * self._dt2)
+            start = self._times1_cut[0] + (shift * self._dt2)
             end = start + (src[1] - src[0])
+
+            # first account for differences in time resolution
+            start_mask = (self._times2 >= start - self._dt2) & (self._times2 < start + self._dt2)
+            start_times = self._times2[start_mask]
+            start_idx = np.argmin([np.abs(s-start) for s in self._times2[start_mask]])
+            start = start_times[start_idx]
 
             # slice lightcurve 2
             mask = (self._times2 >= start) & (self._times2 < end + self._dt2) # take lo_edges + 1
@@ -384,7 +391,8 @@ class Ipn(Localization):
             (float): The chi-squared statistic per degrees of freedom
         """
         if variance1 is not None and variance2 is not None:
-            r = (counts1 - counts2)**2 / (variance1 + variance2)
+            mask = (variance1 > 0) & (variance2 > 0)
+            r = (counts1[mask] - counts2[mask])**2 / (variance1[mask] + variance2[mask])
         else:
             r = (counts1 - counts2)**2 / (counts1 + counts2)
         return r.sum() / dof
